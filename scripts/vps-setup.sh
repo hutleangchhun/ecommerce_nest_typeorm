@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 DEPLOY_DIR="/opt/ecommerce-api"
-REPO_URL="https://github.com/your-username/ecommerce-api.git"  # Update this!
+REPO_URL="https://github.com/hutleangchhun/ecommerce_nest_typeorm.git"
 USER="ecommerce"
 
 echo -e "${YELLOW}🔧 Setting up VPS for E-commerce API deployment...${NC}"
