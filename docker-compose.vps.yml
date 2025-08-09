@@ -25,7 +25,7 @@ services:
 
   # NestJS API
   api:
-    image: ${DOCKERHUB_USERNAME}/ecommerce-api:latest
+    image: leangchhunhut/ecommerce-api:latest
     container_name: ecommerce_api
     restart: unless-stopped
     ports:

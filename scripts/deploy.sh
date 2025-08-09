@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 # Configuration
 DEPLOY_DIR="/opt/ecommerce-api"
 REPO_URL="https://github.com/hutleangchhun/ecommerce_nest_typeorm.git"
-IMAGE_NAME="${DOCKERHUB_USERNAME}/ecommerce-api:latest"
+IMAGE_NAME="leangchhunhut/ecommerce-api:latest"
 
 echo -e "${YELLOW}🚀 Starting deployment...${NC}"
 

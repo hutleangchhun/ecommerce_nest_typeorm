@@ -26,7 +26,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ secrets.DOCKERHUB_USERNAME }}/ecommerce-api
+        images: leangchhunhut/ecommerce-api
         tags: |
           type=ref,event=branch
           type=sha,prefix={{branch}}-
@@ -57,7 +57,7 @@ jobs:
           git pull origin main
           
           # Pull latest Docker image
-          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/ecommerce-api:latest
+          docker pull leangchhunhut/ecommerce-api:latest
           
           # Stop existing containers
           docker-compose -f docker-compose.vps.yml down
