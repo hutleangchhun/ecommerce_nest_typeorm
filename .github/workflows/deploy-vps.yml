@@ -192,22 +192,31 @@ jobs:
           git fetch origin
           git reset --hard origin/main
           
-          # Pull Docker image for target environment
-          echo "🐳 Pulling Docker image: $DOCKER_IMAGE:$ENVIRONMENT"
-          docker pull $DOCKER_IMAGE:$ENVIRONMENT || {
-            echo "❌ Failed to pull $DOCKER_IMAGE:$ENVIRONMENT"
-            echo "Falling back to latest tag..."
+          # Force pull Docker image for target environment
+          echo "🐳 Force pulling Docker image: $DOCKER_IMAGE:$ENVIRONMENT"
+          
+          # Remove old image first to ensure we get the latest
+          docker rmi $DOCKER_IMAGE:$ENVIRONMENT 2>/dev/null || true
+          
+          # Pull fresh image
+          if docker pull $DOCKER_IMAGE:$ENVIRONMENT; then
+            echo "✅ Successfully pulled $DOCKER_IMAGE:$ENVIRONMENT"
+          else
+            echo "⚠️  Failed to pull $DOCKER_IMAGE:$ENVIRONMENT, trying latest..."
+            docker rmi $DOCKER_IMAGE:latest 2>/dev/null || true
             docker pull $DOCKER_IMAGE:latest
             docker tag $DOCKER_IMAGE:latest $DOCKER_IMAGE:$ENVIRONMENT
-          }
+            echo "✅ Using latest image tagged as $ENVIRONMENT"
+          fi
           
           # Update docker-compose with correct image
           echo "🔧 Updating docker-compose configuration..."
           sed -i "s|image:.*ecommerce-api.*|image: $DOCKER_IMAGE:$ENVIRONMENT|g" docker-compose.vps.yml
           
-          # Deploy with zero-downtime strategy
+          # Deploy with zero-downtime strategy and force image pull
           echo "🔄 Performing deployment..."
           docker-compose -f docker-compose.vps.yml down
+          docker-compose -f docker-compose.vps.yml pull api || echo "Pull via compose failed, continuing with manually pulled image"
           docker-compose -f docker-compose.vps.yml up -d --remove-orphans
           
           # Wait for services to be ready

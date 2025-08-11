@@ -73,13 +73,27 @@ jobs:
           git fetch origin
           git reset --hard origin/main
           
-          # Pull latest Docker image
+          # Pull latest Docker image with force
           echo "🐳 Pulling latest Docker image..."
+          docker pull leangchhunhut/ecommerce-api:latest
+          
+          # Remove existing API container to ensure fresh image
+          echo "🛑 Stopping and removing existing API container..."
+          docker stop ecommerce_api || true
+          docker rm ecommerce_api || true
+          
+          # Remove old API image to ensure we use the latest
+          echo "🧹 Removing old API image..."
+          docker rmi leangchhunhut/ecommerce-api:latest || true
+          
+          # Pull fresh image again
+          echo "🐳 Re-pulling latest Docker image..."
           docker pull leangchhunhut/ecommerce-api:latest
           
           # Deploy with zero-downtime strategy
           echo "🔄 Deploying application..."
           docker-compose -f docker-compose.vps.yml down
+          docker-compose -f docker-compose.vps.yml pull api
           docker-compose -f docker-compose.vps.yml up -d --remove-orphans
           
           # Wait for services to start

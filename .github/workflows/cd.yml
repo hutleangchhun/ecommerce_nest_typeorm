@@ -130,15 +130,26 @@ jobs:
           
           cd /opt/ecommerce-api
           
-          # Pull latest image
+          # Force pull latest staging image
+          echo "🐳 Pulling latest staging image..."
+          docker pull ${{ env.DOCKER_IMAGE }}:staging
+          
+          # Remove existing containers to ensure fresh deployment
+          echo "🛑 Stopping existing containers..."
+          docker-compose -f docker-compose.vps.yml down
+          
+          # Remove old image to force using latest
+          docker rmi ${{ env.DOCKER_IMAGE }}:staging || true
+          
+          # Pull fresh image again
           docker pull ${{ env.DOCKER_IMAGE }}:staging
           
           # Update docker-compose to use staging image
           sed -i 's|image:.*ecommerce-api.*|image: ${{ env.DOCKER_IMAGE }}:staging|g' docker-compose.vps.yml
           
-          # Deploy with staging configuration
-          docker-compose -f docker-compose.vps.yml down
-          docker-compose -f docker-compose.vps.yml up -d
+          # Deploy with staging configuration and pull latest images
+          docker-compose -f docker-compose.vps.yml pull api
+          docker-compose -f docker-compose.vps.yml up -d --remove-orphans
           
           # Wait for deployment
           sleep 30
@@ -227,14 +238,22 @@ jobs:
             docker tag ${{ env.DOCKER_IMAGE }}:latest ${{ env.DOCKER_IMAGE }}:backup-$(date +%Y%m%d-%H%M%S)
           fi
           
-          # Pull latest image
+          # Force pull latest production image
+          echo "🐳 Pulling latest production image..."
+          docker pull ${{ env.DOCKER_IMAGE }}:latest
+          
+          # Remove old image to ensure fresh deployment
+          docker rmi ${{ env.DOCKER_IMAGE }}:latest || true
+          
+          # Pull fresh image again
           docker pull ${{ env.DOCKER_IMAGE }}:latest
           
           # Update docker-compose to use latest image
           sed -i 's|image:.*ecommerce-api.*|image: ${{ env.DOCKER_IMAGE }}:latest|g' docker-compose.vps.yml
           
-          # Deploy with zero-downtime strategy
+          # Deploy with zero-downtime strategy and force pull
           echo "🔄 Performing rolling update..."
+          docker-compose -f docker-compose.vps.yml pull api
           docker-compose -f docker-compose.vps.yml up -d --remove-orphans
           
           # Wait for new containers to be ready
