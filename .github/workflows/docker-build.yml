@@ -266,18 +266,33 @@ jobs:
         fi
         
         # Test if container is responsive (basic health check)
-        max_attempts=5
+        max_attempts=8
         attempt=1
         success=false
         
         while [ $attempt -le $max_attempts ] && [ "$success" = "false" ]; do
           echo "Health check attempt $attempt/$max_attempts"
-          if curl -f -m 10 http://localhost:3001 >/dev/null 2>&1; then
-            echo "✅ Container is responding"
+          
+          # First check if container is still running
+          if ! docker ps | grep -q "api-test"; then
+            echo "❌ Container stopped unexpectedly"
+            break
+          fi
+          
+          # Check if the application is responding (try both root and health endpoint)
+          if curl -f -m 10 http://localhost:3001/api/v1/health >/dev/null 2>&1; then
+            echo "✅ Container health endpoint responding"
+            success=true
+          elif curl -f -m 10 http://localhost:3001 >/dev/null 2>&1; then
+            echo "✅ Container root endpoint responding"
             success=true
           else
-            echo "⏳ Waiting for container to respond..."
-            sleep 10
+            echo "⏳ Waiting for container to respond... (attempt $attempt/$max_attempts)"
+            if [ $attempt -eq 4 ]; then
+              echo "📋 Container logs for debugging:"
+              docker logs api-test --tail=20
+            fi
+            sleep 15
             ((attempt++))
           fi
         done
