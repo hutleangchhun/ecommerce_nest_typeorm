@@ -238,7 +238,8 @@ jobs:
         sleep 10
         
         # Run API container with database connection
-        docker run --rm -d --name api-test \
+        echo "Starting API container..."
+        docker run -d --name api-test \
           --network test-network \
           -e NODE_ENV=test \
           -e DB_HOST=test-postgres \
@@ -248,6 +249,7 @@ jobs:
           -e DB_NAME=ecommerce_test \
           -e TYPEORM_SYNCHRONIZE=true \
           -e TYPEORM_LOGGING=false \
+          -e PORT=3000 \
           -p 3001:3000 \
           ${{ env.DOCKERHUB_IMAGE }}:latest
         
@@ -255,15 +257,26 @@ jobs:
         echo "Waiting for API container to start..."
         sleep 30
         
-        # Check if container is running
+        # Check if container is running and get detailed info
+        echo "📋 Docker container status:"
+        docker ps -a
+        
         if ! docker ps | grep -q "api-test"; then
-          echo "❌ Container failed to start"
-          docker logs api-test
+          echo "❌ Container failed to start or exited immediately"
+          echo "📋 Container logs:"
+          docker logs api-test || echo "No logs available"
+          echo "📋 Container inspection:"
+          docker inspect api-test --format='{{.State.Status}}: {{.State.Error}}' || echo "Cannot inspect container"
+          
+          # Cleanup and exit
+          docker rm api-test || true
           docker stop test-postgres || true
           docker rm test-postgres || true
           docker network rm test-network || true
           exit 1
         fi
+        
+        echo "✅ Container started successfully"
         
         # Test if container is responsive (basic health check)
         max_attempts=8
@@ -297,15 +310,19 @@ jobs:
           fi
         done
         
-        # Cleanup
+        # Final cleanup
+        echo "🧹 Cleaning up test environment..."
         docker stop api-test || true
+        docker rm api-test || true
         docker stop test-postgres || true
         docker rm test-postgres || true
         docker network rm test-network || true
         
         if [ "$success" = "false" ]; then
           echo "❌ Container health check failed after $max_attempts attempts"
+          echo "This may indicate application startup issues or database connectivity problems"
           exit 1
         fi
         
         echo "✅ Docker image tests completed successfully"
+        echo "🎉 Container can start and respond to basic requests"
