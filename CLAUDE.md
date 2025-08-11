@@ -101,62 +101,155 @@ All entities use snake_case for database column names but camelCase in TypeScrip
 
 #### CI Pipeline (`.github/workflows/ci.yml`)
 - **Triggers**: Push/PR to main/develop branches
+- **Node.js Versions**: 18.x, 20.x, 22.x with PostgreSQL 15 service
 - **Jobs**:
-  - **Test**: Multi-Node.js version testing (18.x, 20.x) with PostgreSQL service
-  - **E2E Test**: End-to-end testing with database
-  - **Security Scan**: npm audit + Snyk vulnerability scanning
+  - **Test**: Multi-Node.js version testing with enhanced caching
+  - **E2E Test**: End-to-end testing with database integration
+  - **Security Scan**: Comprehensive vulnerability scanning
 - **Features**:
-  - Linting and code formatting checks
-  - Unit tests with coverage reporting (Codecov integration)
-  - Build verification
-  - Health checks
+  - ESLint with auto-fix and Prettier formatting checks
+  - Unit tests with coverage reporting (Codecov v4 integration)
+  - SonarCloud static code analysis
+  - npm audit with JSON output and artifact upload
+  - Snyk vulnerability scanning with SARIF upload
+  - Trivy filesystem vulnerability scanning
+  - GitHub Code Scanning integration
+  - Build verification with production-ready configuration
 
-#### CD Pipeline (`.github/workflows/cd.yml`)
-- **Triggers**: Successful CI completion on main branch
+#### CD Pipeline - VPS Deployment (`.github/workflows/cd.yml`)
+- **Triggers**: Successful CI completion on main branch + manual workflow dispatch
 - **Environments**: Staging → Production (with manual approval)
+- **Docker Registry**: Docker Hub (leangchhunhut/ecommerce-api)
+- **Jobs**:
+  - **Build Image**: Multi-platform Docker build with security scanning
+  - **Deploy Staging**: Automated deployment to staging VPS
+  - **Deploy Production**: Manual approval + production deployment
 - **Features**:
-  - AWS credentials configuration
-  - Health checks post-deployment
+  - Docker image build with multi-architecture support (linux/amd64, linux/arm64)
+  - Trivy container vulnerability scanning
+  - SSH-based VPS deployment via appleboy/ssh-action
+  - Zero-downtime deployment with backup/rollback strategy
+  - Comprehensive health checks (API, database, Swagger docs)
+  - Rolling updates with container verification
+  - Automated cleanup of old Docker images
   - Slack notifications for deployment status
-  - Manual approval gate for production
+  - Manual approval workflow for production deployments
 
-#### Docker Build (`.github/workflows/docker-build.yml`)
+#### Docker Build & Security (`.github/workflows/docker-build.yml`)
 - **Triggers**: Push to main/develop, tags, PRs
+- **Registries**: GitHub Container Registry (ghcr.io) + Docker Hub
 - **Features**:
-  - Multi-platform builds (linux/amd64, linux/arm64)
-  - GitHub Container Registry (ghcr.io)
-  - Trivy security scanning
-  - Build caching with GitHub Actions cache
+  - Multi-platform builds (linux/amd64, linux/arm64) with QEMU emulation
+  - Enhanced build caching with scope-based strategies
+  - SBOM (Software Bill of Materials) generation with Anchore
+  - Provenance and attestation support
+  - Multi-scanner security analysis (Trivy + Grype)
+  - Cosign image signing for supply chain security
+  - Container functionality testing
+  - SARIF security report uploads to GitHub Security tab
+  - Build artifact uploads for compliance
 
-### Deployment Configurations
+### VPS Deployment Configuration
 
-#### Kubernetes (`k8s/`)
-- **Namespace**: ecommerce-api
-- **ConfigMap**: Environment-specific configuration
-- **Secrets**: Base64 encoded sensitive data (DB credentials, JWT)
-- **Deployment**: 3 replicas with resource limits and health probes
-- **Service**: ClusterIP for internal communication
-- **Ingress**: NGINX with TLS termination via cert-manager
+#### VPS Setup (`scripts/vps-setup.sh`)
+- **Deployment Directory**: `/opt/ecommerce-api`
+- **System User**: `ecommerce` (added to docker group)
+- **Required Services**: Docker, Docker Compose, Nginx, UFW firewall
+- **Security Features**:
+  - Custom SSH port configuration (default: 2222)
+  - Key-only authentication (password auth disabled)
+  - Root login disabled
+  - UFW firewall with essential ports only (SSH, 80, 443, 3000)
+- **Nginx Configuration**: Reverse proxy setup for API with health check support
+- **Log Rotation**: Automated log management with 14-day retention
 
-#### Docker Compose
-- **Development**: `docker-compose.yml` (with pgAdmin)
-- **Production**: `docker-compose.prod.yml` (with Nginx reverse proxy)
+#### Docker Compose for VPS (`docker-compose.vps.yml`)
+- **Production Configuration**: Optimized for VPS deployment
+- **Image**: `leangchhunhut/ecommerce-api:latest` (from Docker Hub)
+- **Database**: PostgreSQL 15-alpine with persistent volumes
+- **Networking**: Internal Docker network with exposed API port
+- **Health Checks**: Built-in container health monitoring
+- **Environment**: Production-ready with proper resource limits
+
+#### Legacy Configurations (Optional)
+- **Kubernetes** (`k8s/`): Available for container orchestration environments
+- **Development Docker Compose** (`docker-compose.yml`): Local development with pgAdmin
 
 ### Required Secrets & Variables
 
-#### Repository Secrets
-- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` - AWS deployment credentials
-- `SNYK_TOKEN` - Snyk security scanning
-- `SLACK_WEBHOOK` - Deployment notifications
+#### Repository Secrets (GitHub Settings → Secrets and variables → Actions)
+**Docker Registry:**
+- `DOCKERHUB_USERNAME` - Docker Hub username
+- `DOCKERHUB_TOKEN` - Docker Hub access token/password
 
-#### Environment Variables
-- `AWS_REGION` - AWS deployment region
-- `STAGING_API_URL` / `PRODUCTION_API_URL` - Health check endpoints
-- `PRODUCTION_APPROVERS` - GitHub usernames for production approval
+**VPS Deployment:**
+- `VPS_SSH_KEY` - Private SSH key for VPS access (PEM format)
+- `VPS_USER` - VPS username (default: `ecommerce`)
+- `VPS_PORT` - SSH port (default: `22`, recommended: `2222`)
+- `STAGING_VPS_HOST` - Staging VPS IP address or hostname
+- `PRODUCTION_VPS_HOST` - Production VPS IP address or hostname
+
+**Security & Quality:**
+- `CODECOV_TOKEN` - Codecov integration token
+- `SONAR_TOKEN` - SonarCloud authentication token
+- `SNYK_TOKEN` - Snyk vulnerability scanning token
+
+**Notifications:**
+- `SLACK_WEBHOOK` - Slack webhook URL for deployment notifications
+
+#### Repository Variables (GitHub Settings → Secrets and variables → Actions → Variables)
+- `PRODUCTION_APPROVERS` - Comma-separated GitHub usernames for production approval
+
+#### VPS Environment Variables (Configure in `/opt/ecommerce-api/.env`)
+```bash
+# Database Configuration
+DB_HOST=postgres
+DB_PORT=5432
+DB_USERNAME=your_db_user
+DB_PASSWORD=your_secure_password
+DB_NAME=ecommerce_prod
+
+# Application Configuration
+NODE_ENV=production
+PORT=3000
+JWT_SECRET=your_jwt_secret
+API_PREFIX=api/v1
+
+# TypeORM Configuration
+TYPEORM_SYNCHRONIZE=false
+TYPEORM_LOGGING=false
+TYPEORM_RUN_MIGRATIONS=true
+```
 
 ### Setup Instructions
-1. Copy `.env.example` to `.env` and configure
-2. Update Kubernetes manifests with your domain/image registry
-3. Configure GitHub repository secrets
-4. Update Docker image references in deployment files
-5. Set up AWS/cloud infrastructure for deployment targets
+
+#### 1. VPS Initial Setup
+```bash
+# On your VPS, run the setup script
+chmod +x scripts/vps-setup.sh
+SSH_PORT=2222 ./scripts/vps-setup.sh
+```
+
+#### 2. Configure GitHub Repository
+1. Add all required secrets and variables in GitHub repository settings
+2. Ensure your SSH public key is added to the VPS `ecommerce` user
+3. Update VPS hostnames/IPs in repository secrets
+4. Configure production approvers list
+
+#### 3. Docker Compose VPS Configuration
+Create `docker-compose.vps.yml` on your VPS with production settings:
+- PostgreSQL with persistent volumes
+- API container with health checks
+- Proper networking and resource limits
+- Environment file integration
+
+#### 4. Initial Deployment
+1. Push to `main` branch to trigger CI/CD pipeline
+2. Monitor CI completion and automatic staging deployment
+3. For production: Manually approve deployment via GitHub Issues
+4. Verify health checks and functionality post-deployment
+
+#### 5. Domain Configuration (Optional)
+1. Update Nginx configuration in `/etc/nginx/sites-available/ecommerce-api`
+2. Configure SSL certificates (Let's Encrypt recommended)
+3. Update firewall rules if using custom ports

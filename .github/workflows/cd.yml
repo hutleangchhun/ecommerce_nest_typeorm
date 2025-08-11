@@ -1,46 +1,142 @@
-name: CD
+name: CD - VPS Deployment
 
 on:
-  push:
-    branches: [ main ]
   workflow_run:
     workflows: ["CI"]
     types:
       - completed
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  DOCKER_IMAGE: leangchhunhut/ecommerce-api
 
 jobs:
-  deploy-staging:
+  build-image:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event.workflow_run.conclusion == 'success'
-    environment: staging
-
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ vars.AWS_REGION }}
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-    - name: Deploy to staging
-      run: |
-        echo "Deploying to staging environment..."
-        # Add your staging deployment commands here
-        # Examples:
-        # - Deploy to ECS/EKS
-        # - Update Lambda functions
-        # - Deploy to Elastic Beanstalk
-        # - Update Docker containers
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.DOCKER_IMAGE }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=staging,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.DOCKER_IMAGE }}:latest
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: github.ref == 'refs/heads/main' && (github.event.workflow_run.conclusion == 'success' || github.event.inputs.environment == 'staging')
+    environment: 
+      name: staging
+      url: http://${{ secrets.STAGING_VPS_HOST }}:3000
+
+    steps:
+    - name: Deploy to staging VPS
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.STAGING_VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        port: ${{ secrets.VPS_PORT || 22 }}
+        script: |
+          set -e
+          echo "🚀 Deploying to staging..."
+          
+          cd /opt/ecommerce-api
+          
+          # Pull latest image
+          docker pull ${{ env.DOCKER_IMAGE }}:staging
+          
+          # Update docker-compose to use staging image
+          sed -i 's|image:.*ecommerce-api.*|image: ${{ env.DOCKER_IMAGE }}:staging|g' docker-compose.vps.yml
+          
+          # Deploy with staging configuration
+          docker-compose -f docker-compose.vps.yml down
+          docker-compose -f docker-compose.vps.yml up -d
+          
+          # Wait for deployment
+          sleep 30
+          
+          # Clean up old images
+          docker image prune -f
 
     - name: Run health check
       run: |
-        echo "Running health check on staging..."
-        # Add health check commands
-        curl -f ${{ vars.STAGING_API_URL }}/health || exit 1
+        sleep 20
+        max_attempts=5
+        attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Health check attempt $attempt/$max_attempts"
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.STAGING_VPS_HOST }}:3000/api/v1/health || echo "000")
+          
+          if [ "$response" = "200" ]; then
+            echo "✅ Staging health check passed!"
+            break
+          elif [ $attempt -eq $max_attempts ]; then
+            echo "❌ Staging health check failed after $max_attempts attempts"
+            exit 1
+          else
+            echo "⏳ Waiting 10s before retry..."
+            sleep 10
+            ((attempt++))
+          fi
+        done
 
     - name: Notify deployment status
       uses: 8398a7/action-slack@v3
@@ -49,39 +145,145 @@ jobs:
         status: ${{ job.status }}
         channel: '#deployments'
         webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        text: |
+          Staging deployment ${{ job.status }}!
+          Environment: http://${{ secrets.STAGING_VPS_HOST }}:3000
 
   deploy-production:
     runs-on: ubuntu-latest
-    needs: deploy-staging
-    if: success()
-    environment: production
+    needs: [build-image, deploy-staging]
+    if: success() && (github.event.inputs.environment == 'production' || (needs.deploy-staging.result == 'success' && github.ref == 'refs/heads/main'))
+    environment: 
+      name: production
+      url: http://${{ secrets.PRODUCTION_VPS_HOST }}:3000
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
     - name: Manual approval required
       uses: trstringer/manual-approval@v1
       with:
         secret: ${{ github.TOKEN }}
         approvers: ${{ vars.PRODUCTION_APPROVERS }}
+        minimum-approvals: 1
+        issue-title: "Production Deployment Approval Required"
+        issue-body: |
+          ### Production Deployment Request
+          
+          **Branch**: ${{ github.ref_name }}
+          **Commit**: ${{ github.sha }}
+          **Docker Image**: ${{ env.DOCKER_IMAGE }}:latest
+          **Requester**: ${{ github.actor }}
+          
+          **Staging Status**: ✅ Successfully deployed and health checked
+          
+          Please review and approve this production deployment.
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+    - name: Deploy to production VPS
+      uses: appleboy/ssh-action@v1.0.3
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ vars.AWS_REGION }}
+        host: ${{ secrets.PRODUCTION_VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        port: ${{ secrets.VPS_PORT || 22 }}
+        script: |
+          set -e
+          echo "🚀 Deploying to production..."
+          
+          cd /opt/ecommerce-api
+          
+          # Create backup of current deployment
+          if docker-compose -f docker-compose.vps.yml ps | grep -q "Up"; then
+            echo "📦 Creating backup of current deployment..."
+            docker tag ${{ env.DOCKER_IMAGE }}:latest ${{ env.DOCKER_IMAGE }}:backup-$(date +%Y%m%d-%H%M%S)
+          fi
+          
+          # Pull latest image
+          docker pull ${{ env.DOCKER_IMAGE }}:latest
+          
+          # Update docker-compose to use latest image
+          sed -i 's|image:.*ecommerce-api.*|image: ${{ env.DOCKER_IMAGE }}:latest|g' docker-compose.vps.yml
+          
+          # Deploy with zero-downtime strategy
+          echo "🔄 Performing rolling update..."
+          docker-compose -f docker-compose.vps.yml up -d --remove-orphans
+          
+          # Wait for new containers to be ready
+          sleep 45
+          
+          # Verify deployment
+          if ! docker-compose -f docker-compose.vps.yml ps | grep -q "Up"; then
+            echo "❌ Deployment failed - rolling back..."
+            docker tag ${{ env.DOCKER_IMAGE }}:backup-$(date +%Y%m%d)* ${{ env.DOCKER_IMAGE }}:latest 2>/dev/null || echo "No backup available"
+            docker-compose -f docker-compose.vps.yml up -d
+            exit 1
+          fi
+          
+          echo "✅ Production deployment successful!"
 
-    - name: Deploy to production
+    - name: Run production health check
       run: |
-        echo "Deploying to production environment..."
-        # Add your production deployment commands here
+        sleep 30
+        max_attempts=10
+        attempt=1
+        
+        echo "🔍 Running comprehensive production health checks..."
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Health check attempt $attempt/$max_attempts"
+          
+          # Check main health endpoint
+          health_response=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.PRODUCTION_VPS_HOST }}:3000/api/v1/health || echo "000")
+          
+          # Check database health
+          db_response=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.PRODUCTION_VPS_HOST }}:3000/api/v1/health/database || echo "000")
+          
+          # Check API endpoints
+          api_response=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.PRODUCTION_VPS_HOST }}:3000/api/v1/categories || echo "000")
+          
+          if [ "$health_response" = "200" ] && [ "$db_response" = "200" ] && [ "$api_response" = "200" ]; then
+            echo "✅ All production health checks passed!"
+            echo "   - Health endpoint: $health_response"
+            echo "   - Database: $db_response"
+            echo "   - API: $api_response"
+            break
+          elif [ $attempt -eq $max_attempts ]; then
+            echo "❌ Production health checks failed after $max_attempts attempts"
+            echo "   - Health endpoint: $health_response"
+            echo "   - Database: $db_response"  
+            echo "   - API: $api_response"
+            exit 1
+          else
+            echo "⏳ Waiting 15s before retry..."
+            sleep 15
+            ((attempt++))
+          fi
+        done
 
-    - name: Run health check
+    - name: Post-deployment verification
       run: |
-        echo "Running health check on production..."
-        curl -f ${{ vars.PRODUCTION_API_URL }}/health || exit 1
+        echo "🧪 Running post-deployment verification..."
+        
+        # Check Swagger documentation
+        swagger_response=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.PRODUCTION_VPS_HOST }}:3000/api/docs || echo "000")
+        
+        if [ "$swagger_response" = "200" ]; then
+          echo "✅ Swagger documentation accessible"
+        else
+          echo "⚠️  Warning: Swagger documentation not accessible (HTTP $swagger_response)"
+        fi
+        
+        echo "🎉 Production deployment completed successfully!"
+
+    - name: Clean up old images on production
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.PRODUCTION_VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        port: ${{ secrets.VPS_PORT || 22 }}
+        script: |
+          echo "🧹 Cleaning up old Docker images..."
+          docker image prune -a -f --filter "until=72h"
+          echo "✅ Cleanup completed"
 
     - name: Notify deployment status
       uses: 8398a7/action-slack@v3
@@ -90,3 +292,11 @@ jobs:
         status: ${{ job.status }}
         channel: '#deployments'
         webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        text: |
+          🚀 PRODUCTION deployment ${{ job.status }}!
+          
+          **Environment**: http://${{ secrets.PRODUCTION_VPS_HOST }}:3000
+          **API Docs**: http://${{ secrets.PRODUCTION_VPS_HOST }}:3000/api/docs
+          **Commit**: ${{ github.sha }}
+          **Branch**: ${{ github.ref_name }}
+          **Deployed by**: ${{ github.actor }}
