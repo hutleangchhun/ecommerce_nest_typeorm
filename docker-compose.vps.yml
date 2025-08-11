@@ -14,7 +14,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrate/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     networks:
       - ecommerce-network
     healthcheck:
@@ -47,7 +46,7 @@ services:
     networks:
       - ecommerce-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/categories"]
+      test: ["CMD", "node", "-e", "const http = require('http'); http.get('http://localhost:3000/api/v1/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
       interval: 30s
       timeout: 10s
       retries: 3

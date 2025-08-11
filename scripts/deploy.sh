@@ -27,6 +27,34 @@ fi
 
 # Navigate to deployment directory
 cd "$DEPLOY_DIR"
+echo -e "${YELLOW}📁 Current directory: $(pwd)${NC}"
+
+# Check if .env file exists
+if [ ! -f ".env" ]; then
+    echo -e "${YELLOW}⚠️  .env file not found. Creating from template...${NC}"
+    if [ -f ".env.vps" ]; then
+        cp .env.vps .env
+        echo -e "${RED}📝 IMPORTANT: Configure /opt/ecommerce-api/.env with your settings before continuing!${NC}"
+        echo -e "${YELLOW}Required settings: DB_PASSWORD, JWT_SECRET, CORS_ORIGIN${NC}"
+        read -p "Press Enter after configuring .env file..."
+    else
+        echo -e "${RED}❌ No .env template found!${NC}"
+        exit 1
+    fi
+fi
+
+# Check Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo -e "${RED}❌ Docker is not running!${NC}"
+    echo -e "${YELLOW}Run: sudo systemctl start docker${NC}"
+    exit 1
+fi
+
+# Check if docker-compose.vps.yml exists
+if [ ! -f "docker-compose.vps.yml" ]; then
+    echo -e "${RED}❌ docker-compose.vps.yml not found!${NC}"
+    exit 1
+fi
 
 # Pull latest code
 echo -e "${YELLOW}📥 Pulling latest code...${NC}"
