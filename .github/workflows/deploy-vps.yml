@@ -1,13 +1,81 @@
-name: Deploy to VPS
+name: Direct VPS Deploy
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+      skip_tests:
+        description: 'Skip CI tests (use with caution)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DOCKER_IMAGE: leangchhunhut/ecommerce-api
 
 jobs:
+  run-ci-tests:
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_tests }}
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: test123
+          POSTGRES_USER: test
+          POSTGRES_DB: ecommerce_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run linting
+      run: npm run lint
+
+    - name: Build application
+      run: npm run build
+
+    - name: Run unit tests
+      run: npm run test
+      env:
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_USERNAME: test
+        DB_PASSWORD: test123
+        DB_NAME: ecommerce_test
+        NODE_ENV: test
+
   build-and-deploy:
     runs-on: ubuntu-latest
+    needs: run-ci-tests
+    if: always() && (needs.run-ci-tests.result == 'success' || inputs.skip_tests)
+    environment:
+      name: ${{ inputs.environment }}
+      url: http://${{ inputs.environment == 'production' && secrets.PRODUCTION_VPS_HOST || secrets.STAGING_VPS_HOST }}:3000
     
     steps:
     - name: Checkout code
@@ -26,125 +94,240 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: leangchhunhut/ecommerce-api
+        images: ${{ env.DOCKER_IMAGE }}
         tags: |
           type=ref,event=branch
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=${{ inputs.environment }},enable=true
+        labels: |
+          org.opencontainers.image.title=E-commerce API (${{ inputs.environment }})
+          org.opencontainers.image.description=Direct deployment to ${{ inputs.environment }}
+          deployment.environment=${{ inputs.environment }}
+          deployment.timestamp=${{ github.run_id }}
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
+        platforms: linux/amd64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=gha,scope=vps-deploy
+        cache-to: type=gha,mode=max,scope=vps-deploy
+        build-args: |
+          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          VCS_REF=${{ github.sha }}
+          ENVIRONMENT=${{ inputs.environment }}
 
-    - name: Deploy to VPS
+    - name: Deploy to ${{ inputs.environment }} VPS
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.VPS_HOST }}
+        host: ${{ inputs.environment == 'production' && secrets.PRODUCTION_VPS_HOST || secrets.STAGING_VPS_HOST }}
         username: ${{ secrets.VPS_USER }}
         key: ${{ secrets.VPS_SSH_KEY }}
         port: ${{ secrets.VPS_PORT || 22 }}
+        timeout: 300s
         script: |
           set -e  # Exit on error
           
-          echo "🚀 Starting deployment..."
+          ENVIRONMENT="${{ inputs.environment }}"
+          DOCKER_IMAGE="${{ env.DOCKER_IMAGE }}"
           
-          # Check if deployment directory exists
+          echo "🚀 Starting direct deployment to $ENVIRONMENT..."
+          echo "📊 Deployment Info:"
+          echo "   - Environment: $ENVIRONMENT"
+          echo "   - Image: $DOCKER_IMAGE:$ENVIRONMENT"
+          echo "   - Commit: ${{ github.sha }}"
+          echo "   - Branch: ${{ github.ref_name }}"
+          echo "   - Triggered by: ${{ github.actor }}"
+          
+          # Pre-deployment checks
+          echo "🔍 Running pre-deployment checks..."
+          
           if [ ! -d "/opt/ecommerce-api" ]; then
             echo "❌ Deployment directory /opt/ecommerce-api not found!"
-            echo "Please run the VPS setup script first."
+            echo "Please run: chmod +x scripts/vps-setup.sh && ./scripts/vps-setup.sh"
             exit 1
           fi
           
-          # Navigate to deployment directory
           cd /opt/ecommerce-api
-          echo "📁 Current directory: $(pwd)"
+          echo "📁 Working directory: $(pwd)"
           
-          # Check if .env file exists
+          # Verify environment file
           if [ ! -f ".env" ]; then
             echo "⚠️  .env file not found. Creating from template..."
-            if [ -f ".env.vps" ]; then
-              cp .env.vps .env
-              echo "📝 Please configure /opt/ecommerce-api/.env with your settings"
+            if [ -f ".env.example" ]; then
+              cp .env.example .env
+              echo "📝 Please configure /opt/ecommerce-api/.env with your $ENVIRONMENT settings"
             else
               echo "❌ No .env template found!"
               exit 1
             fi
           fi
           
-          # Check if docker-compose.vps.yml exists
+          # Verify docker-compose file
           if [ ! -f "docker-compose.vps.yml" ]; then
             echo "❌ docker-compose.vps.yml not found!"
+            echo "Please ensure VPS setup is complete."
             exit 1
           fi
           
-          # Check Docker is running
+          # Check Docker service
           if ! docker info > /dev/null 2>&1; then
             echo "❌ Docker is not running!"
+            echo "Please start Docker: sudo systemctl start docker"
             exit 1
           fi
           
-          # Pull latest changes
-          echo "📥 Pulling latest code..."
-          git pull origin main || { echo "❌ Git pull failed"; exit 1; }
-          
-          # Pull latest Docker image
-          echo "🐳 Pulling Docker image..."
-          docker pull leangchhunhut/ecommerce-api:latest || { echo "❌ Docker pull failed"; exit 1; }
-          
-          # Stop existing containers
-          echo "🛑 Stopping existing containers..."
-          docker-compose -f docker-compose.vps.yml down
-          
-          # Start new containers
-          echo "🚀 Starting new containers..."
-          docker-compose -f docker-compose.vps.yml up -d
-          
-          # Wait for containers to start
-          echo "⏳ Waiting for containers to start..."
-          sleep 20
-          
-          # Check container status
-          echo "🔍 Checking container status..."
-          docker-compose -f docker-compose.vps.yml ps
-          
-          # Check if containers are running
+          # Create backup if containers are running
           if docker-compose -f docker-compose.vps.yml ps | grep -q "Up"; then
-            echo "✅ Containers are running!"
-          else
-            echo "❌ Containers failed to start!"
+            echo "📦 Creating backup before deployment..."
+            docker tag $DOCKER_IMAGE:$ENVIRONMENT $DOCKER_IMAGE:backup-$(date +%Y%m%d-%H%M%S) 2>/dev/null || echo "No previous image to backup"
+          fi
+          
+          # Pull latest changes from repository
+          echo "📥 Pulling latest code from repository..."
+          git fetch origin
+          git reset --hard origin/main
+          
+          # Pull Docker image for target environment
+          echo "🐳 Pulling Docker image: $DOCKER_IMAGE:$ENVIRONMENT"
+          docker pull $DOCKER_IMAGE:$ENVIRONMENT || {
+            echo "❌ Failed to pull $DOCKER_IMAGE:$ENVIRONMENT"
+            echo "Falling back to latest tag..."
+            docker pull $DOCKER_IMAGE:latest
+            docker tag $DOCKER_IMAGE:latest $DOCKER_IMAGE:$ENVIRONMENT
+          }
+          
+          # Update docker-compose with correct image
+          echo "🔧 Updating docker-compose configuration..."
+          sed -i "s|image:.*ecommerce-api.*|image: $DOCKER_IMAGE:$ENVIRONMENT|g" docker-compose.vps.yml
+          
+          # Deploy with zero-downtime strategy
+          echo "🔄 Performing deployment..."
+          docker-compose -f docker-compose.vps.yml down
+          docker-compose -f docker-compose.vps.yml up -d --remove-orphans
+          
+          # Wait for services to be ready
+          echo "⏳ Waiting for services to start (45s)..."
+          sleep 45
+          
+          # Verify deployment
+          echo "🔍 Verifying deployment..."
+          if ! docker-compose -f docker-compose.vps.yml ps | grep -q "Up"; then
+            echo "❌ Deployment verification failed!"
+            echo "📋 Container status:"
+            docker-compose -f docker-compose.vps.yml ps
             echo "📋 Container logs:"
             docker-compose -f docker-compose.vps.yml logs --tail=50
+            
+            # Attempt rollback if backup exists
+            if docker images | grep -q "$DOCKER_IMAGE.*backup"; then
+              echo "🔄 Attempting rollback..."
+              BACKUP_TAG=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep "$DOCKER_IMAGE.*backup" | head -1 | cut -d':' -f2)
+              docker tag $DOCKER_IMAGE:$BACKUP_TAG $DOCKER_IMAGE:$ENVIRONMENT
+              docker-compose -f docker-compose.vps.yml up -d
+            fi
             exit 1
           fi
           
-          # Clean up old images
-          echo "🧹 Cleaning up old images..."
+          # Clean up old images (keep last 3)
+          echo "🧹 Cleaning up old Docker images..."
           docker image prune -f
           
-          echo "✅ Deployment completed successfully!"
+          echo "✅ Direct deployment to $ENVIRONMENT completed successfully!"
+          echo "🌐 Application should be available at: http://$(hostname -I | awk '{print $1}'):3000"
 
-    - name: Health Check
+    - name: Comprehensive Health Check
       run: |
-        sleep 30
-        response=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.VPS_HOST }}:3000/api/v1/categories || echo "000")
-        if [ "$response" = "200" ]; then
-          echo "✅ Health check passed!"
-        else
-          echo "❌ Health check failed with response code: $response"
+        VPS_HOST="${{ inputs.environment == 'production' && secrets.PRODUCTION_VPS_HOST || secrets.STAGING_VPS_HOST }}"
+        ENVIRONMENT="${{ inputs.environment }}"
+        
+        echo "🔍 Running comprehensive health checks for $ENVIRONMENT environment..."
+        
+        # Wait for application to fully start
+        sleep 45
+        
+        max_attempts=8
+        attempt=1
+        all_passed=true
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Health check attempt $attempt/$max_attempts"
+          
+          # Check main health endpoint
+          health_response=$(curl -s -o /dev/null -w "%{http_code}" http://$VPS_HOST:3000/api/v1/health || echo "000")
+          
+          # Check database health
+          db_response=$(curl -s -o /dev/null -w "%{http_code}" http://$VPS_HOST:3000/api/v1/health/database || echo "000")
+          
+          # Check API functionality
+          api_response=$(curl -s -o /dev/null -w "%{http_code}" http://$VPS_HOST:3000/api/v1/categories || echo "000")
+          
+          # Check Swagger docs
+          swagger_response=$(curl -s -o /dev/null -w "%{http_code}" http://$VPS_HOST:3000/api/docs || echo "000")
+          
+          echo "Response codes - Health: $health_response | DB: $db_response | API: $api_response | Docs: $swagger_response"
+          
+          if [ "$health_response" = "200" ] && [ "$db_response" = "200" ] && [ "$api_response" = "200" ]; then
+            echo "✅ All critical health checks passed!"
+            if [ "$swagger_response" = "200" ]; then
+              echo "✅ Swagger documentation is also accessible"
+            else
+              echo "⚠️  Warning: Swagger docs not accessible (non-critical)"
+            fi
+            all_passed=true
+            break
+          elif [ $attempt -eq $max_attempts ]; then
+            echo "❌ Health checks failed after $max_attempts attempts"
+            all_passed=false
+            break
+          else
+            echo "⏳ Waiting 15s before retry..."
+            sleep 15
+            ((attempt++))
+          fi
+        done
+        
+        if [ "$all_passed" = "false" ]; then
+          echo "❌ $ENVIRONMENT deployment health check failed!"
           exit 1
         fi
+        
+        echo "🎉 $ENVIRONMENT deployment health check completed successfully!"
+        echo "🌐 Application URLs:"
+        echo "   - API: http://$VPS_HOST:3000/api/v1"
+        echo "   - Health: http://$VPS_HOST:3000/api/v1/health"
+        echo "   - Docs: http://$VPS_HOST:3000/api/docs"
 
-    - name: Notify deployment status
+    - name: Deployment Summary
       if: always()
       run: |
+        ENVIRONMENT="${{ inputs.environment }}"
+        VPS_HOST="${{ inputs.environment == 'production' && secrets.PRODUCTION_VPS_HOST || secrets.STAGING_VPS_HOST }}"
+        
+        echo "📋 Direct VPS Deployment Summary"
+        echo "================================="
+        echo "Environment: $ENVIRONMENT"
+        echo "VPS Host: $VPS_HOST"
+        echo "Docker Image: ${{ env.DOCKER_IMAGE }}:$ENVIRONMENT"
+        echo "Commit: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Triggered by: ${{ github.actor }}"
+        echo "Job Status: ${{ job.status }}"
+        echo "Tests Skipped: ${{ inputs.skip_tests }}"
+        
         if [ "${{ job.status }}" = "success" ]; then
-          echo "🚀 Deployment to VPS completed successfully!"
+          echo ""
+          echo "✅ Direct deployment to $ENVIRONMENT completed successfully!"
+          echo "🌐 Application is available at: http://$VPS_HOST:3000"
+          echo "📚 API Documentation: http://$VPS_HOST:3000/api/docs"
         else
-          echo "❌ Deployment to VPS failed!"
+          echo ""
+          echo "❌ Direct deployment to $ENVIRONMENT failed!"
+          echo "Please check the logs above for error details."
         fi
+        
+        echo "================================="

@@ -2,6 +2,8 @@
 
 A comprehensive e-commerce REST API built with NestJS, TypeORM, and PostgreSQL. This API provides full CRUD operations for managing categories, products, customers, and orders.
 
+> **🧪 Testing CI/CD Pipeline** - Updated for deployment testing
+
 ## 🚀 Features
 
 - **Categories Management** - Create, read, update, delete product categories

@@ -1,4 +1,4 @@
-name: CD - VPS Deployment
+name: CD - Automated VPS Pipeline
 
 on:
   workflow_run:
@@ -6,16 +6,24 @@ on:
     types:
       - completed
     branches: [ main ]
+  schedule:
+    # Run automated deployment daily at 2 AM UTC
+    - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Deployment environment'
+        description: 'Deployment environment for automated pipeline'
         required: true
         default: 'staging'
         type: choice
         options:
         - staging
         - production
+      force_deploy:
+        description: 'Force deployment even if no changes'
+        required: false
+        default: false
+        type: boolean
 
 env:
   DOCKER_IMAGE: leangchhunhut/ecommerce-api
@@ -23,14 +31,37 @@ env:
 jobs:
   build-image:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || inputs.force_deploy }}
     outputs:
       image-tag: ${{ steps.meta.outputs.tags }}
       image-digest: ${{ steps.build.outputs.digest }}
+      should-deploy: ${{ steps.check-changes.outputs.should-deploy }}
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 2  # Need history to check for changes
+
+    - name: Check for changes
+      id: check-changes
+      run: |
+        if [ "${{ github.event_name }}" = "schedule" ]; then
+          # For scheduled runs, check if there are new commits since last day
+          if git log --since="24 hours ago" --oneline | grep -q .; then
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "📅 Scheduled deployment: New commits found"
+          else
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+            echo "📅 Scheduled deployment: No new commits, skipping"
+          fi
+        elif [ "${{ inputs.force_deploy }}" = "true" ]; then
+          echo "should-deploy=true" >> $GITHUB_OUTPUT
+          echo "🔄 Force deployment requested"
+        else
+          echo "should-deploy=true" >> $GITHUB_OUTPUT
+          echo "🚀 Regular deployment triggered"
+        fi
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -80,7 +111,7 @@ jobs:
   deploy-staging:
     runs-on: ubuntu-latest
     needs: build-image
-    if: github.ref == 'refs/heads/main' && (github.event.workflow_run.conclusion == 'success' || github.event.inputs.environment == 'staging')
+    if: needs.build-image.outputs.should-deploy == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'schedule') && (github.event.workflow_run.conclusion == 'success' || github.event.inputs.environment == 'staging' || github.event_name == 'schedule')
     environment: 
       name: staging
       url: http://${{ secrets.STAGING_VPS_HOST }}:3000
@@ -152,7 +183,7 @@ jobs:
   deploy-production:
     runs-on: ubuntu-latest
     needs: [build-image, deploy-staging]
-    if: success() && (github.event.inputs.environment == 'production' || (needs.deploy-staging.result == 'success' && github.ref == 'refs/heads/main'))
+    if: needs.build-image.outputs.should-deploy == 'true' && success() && (github.event.inputs.environment == 'production' || (needs.deploy-staging.result == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'schedule'))
     environment: 
       name: production
       url: http://${{ secrets.PRODUCTION_VPS_HOST }}:3000
