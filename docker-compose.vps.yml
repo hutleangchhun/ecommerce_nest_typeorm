@@ -1,27 +1,6 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    container_name: ecommerce_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_NAME:-ecommerce_db}
-      POSTGRES_USER: ${DB_USERNAME:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - ecommerce-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
   # NestJS API
   api:
     image: leangchhunhut/ecommerce-api:latest
@@ -31,8 +10,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
       DB_USERNAME: ${DB_USERNAME:-postgres}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME:-ecommerce_db}
@@ -41,9 +20,6 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
       CORS_ORIGIN: ${CORS_ORIGIN}
       PORT: 3000
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
       - ecommerce-network
     healthcheck:
@@ -71,8 +47,6 @@ services:
     profiles:
       - nginx
 
-volumes:
-  postgres_data:
 
 networks:
   ecommerce-network:
