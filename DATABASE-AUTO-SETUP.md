@@ -86,6 +86,7 @@ docker-compose logs api
 
 ### Option 2: Local Development
 ```bash
+
 # 1. Start PostgreSQL locally
 # 2. Copy environment file
 cp .env.example .env

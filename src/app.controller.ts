@@ -8,11 +8,6 @@ export class AppController {
   @ApiOperation({ summary: 'Basic API status check' })
   @ApiResponse({ status: 200, description: 'API is running' })
   getStatus() {
-    return {
-      message: 'E-commerce API is running',
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      version: '1.0.0',
-    };
+    return 'Hello World';
   }
 }
