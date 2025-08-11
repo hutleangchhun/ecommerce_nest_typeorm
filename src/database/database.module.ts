@@ -17,11 +17,11 @@ import { DatabaseService } from './database.service';
         
         return {
           type: 'postgres',
-          host: configService.get<string>('DB_HOST'),
+          host: configService.get<string>('DB_HOST', '157.10.73.27'),
           port: parseInt(configService.get<string>('DB_PORT', '5432')),
-          username: configService.get<string>('DB_USERNAME'),
-          password: configService.get<string>('DB_PASSWORD'),
-          database: configService.get<string>('DB_NAME'),
+          username: configService.get<string>('DB_USERNAME', 'postgres'),
+          password: configService.get<string>('DB_PASSWORD', '1234'),
+          database: configService.get<string>('DB_NAME', 'ecommerce_db'),
           entities: Object.values(entities),
           synchronize: configService.get('TYPEORM_SYNCHRONIZE', 'true') === 'true',
           logging: logging as any,
