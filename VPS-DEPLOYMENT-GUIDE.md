@@ -28,7 +28,15 @@ When you push code to the `main` branch, GitHub Actions will:
    ```bash
    wget https://raw.githubusercontent.com/your-username/ecommerce-api/main/scripts/vps-setup.sh
    chmod +x vps-setup.sh
+   # To use custom SSH port (default is 2222):
+   SSH_PORT=2222 sudo -E ./vps-setup.sh
+   # Or to use default port 22:
    sudo ./vps-setup.sh
+   ```
+
+   > **⚠️ Important**: If you change the SSH port, you'll need to reconnect using the new port:
+   ```bash
+   ssh ecommerce@your-vps-ip -p 2222
    ```
 
 3. **Configure environment variables**:
@@ -57,7 +65,7 @@ Add these **Repository Secrets**:
 | `VPS_HOST` | Your VPS IP address | `192.168.1.100` |
 | `VPS_USER` | VPS user for deployment | `ecommerce` |
 | `VPS_SSH_KEY` | Private SSH key content | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
-| `VPS_PORT` | SSH port (optional) | `22` |
+| `VPS_PORT` | SSH port (set to your custom port) | `2222` |
 
 ### 2.3 Generate SSH Key for Deployment
 On your local machine:
@@ -65,8 +73,12 @@ On your local machine:
 ssh-keygen -t ed25519 -C "deployment@ecommerce-api"
 ```
 
-Copy the public key to your VPS:
+Copy the public key to your VPS (use your custom SSH port):
 ```bash
+# If using custom SSH port (e.g., 2222):
+ssh-copy-id -i ~/.ssh/id_ed25519.pub -p 2222 ecommerce@your-vps-ip
+
+# If using default port 22:
 ssh-copy-id -i ~/.ssh/id_ed25519.pub ecommerce@your-vps-ip
 ```
 
@@ -174,14 +186,17 @@ docker-compose -f docker-compose.vps.yml exec postgres psql -U postgres -d ecomm
 
 ## Security Considerations
 
-1. **Change default passwords** in `.env`
-2. **Use strong JWT secret** (min 32 characters)
-3. **Enable firewall** (done by setup script)
-4. **Regular security updates**:
+1. **Change default SSH port** (setup script defaults to 2222)
+2. **Change default passwords** in `.env`
+3. **Use strong JWT secret** (min 32 characters)
+4. **Enable firewall** (done by setup script)
+5. **SSH key-only authentication** (password auth disabled)
+6. **Root login disabled** (use ecommerce user)
+7. **Regular security updates**:
    ```bash
    sudo apt update && sudo apt upgrade -y
    ```
-5. **Monitor logs** for suspicious activity
+8. **Monitor logs** for suspicious activity
 
 ## File Structure on VPS
 

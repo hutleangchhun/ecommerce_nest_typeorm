@@ -15,6 +15,7 @@ NC='\033[0m' # No Color
 DEPLOY_DIR="/opt/ecommerce-api"
 REPO_URL="https://github.com/hutleangchhun/ecommerce_nest_typeorm.git"
 USER="ecommerce"
+SSH_PORT=${SSH_PORT:-2222}  # Default to 2222, can be overridden
 
 echo -e "${YELLOW}🔧 Setting up VPS for E-commerce API deployment...${NC}"
 
@@ -64,10 +65,34 @@ fi
 # Make deploy script executable
 chmod +x "$DEPLOY_DIR/scripts/deploy.sh"
 
+# Configure SSH security
+echo -e "${YELLOW}🔐 Configuring SSH security...${NC}"
+if [ "$SSH_PORT" != "22" ]; then
+    echo -e "${YELLOW}📝 Configuring SSH port to $SSH_PORT...${NC}"
+    
+    # Backup original sshd_config
+    sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+    
+    # Update SSH port
+    sudo sed -i "s/#Port 22/Port $SSH_PORT/g" /etc/ssh/sshd_config
+    sudo sed -i "s/Port 22/Port $SSH_PORT/g" /etc/ssh/sshd_config
+    
+    # Disable password authentication (key-only authentication)
+    sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
+    sudo sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
+    
+    # Disable root login
+    sudo sed -i 's/#PermitRootLogin yes/PermitRootLogin no/g' /etc/ssh/sshd_config
+    sudo sed -i 's/PermitRootLogin yes/PermitRootLogin no/g' /etc/ssh/sshd_config
+    
+    echo -e "${GREEN}✅ SSH configured to use port $SSH_PORT${NC}"
+    echo -e "${YELLOW}⚠️  SSH will restart after firewall configuration${NC}"
+fi
+
 # Set up firewall
 echo -e "${YELLOW}🔥 Configuring firewall...${NC}"
 sudo ufw --force enable
-sudo ufw allow ssh
+sudo ufw allow "$SSH_PORT/tcp"  # Custom SSH port
 sudo ufw allow 80
 sudo ufw allow 443
 sudo ufw allow 3000  # API port
@@ -121,6 +146,17 @@ sudo tee /etc/logrotate.d/ecommerce-api > /dev/null <<EOF
 }
 EOF
 
+# Restart SSH service if port was changed
+if [ "$SSH_PORT" != "22" ]; then
+    echo -e "${YELLOW}🔄 Restarting SSH service...${NC}"
+    sudo systemctl restart sshd
+    
+    echo -e "${GREEN}✅ SSH service restarted${NC}"
+    echo -e "${RED}⚠️  IMPORTANT: SSH port changed to $SSH_PORT${NC}"
+    echo -e "${RED}⚠️  Make sure to update your SSH connection and GitHub secrets!${NC}"
+    echo -e "${YELLOW}New SSH command: ssh $USER@your-vps-ip -p $SSH_PORT${NC}"
+fi
+
 echo -e "${GREEN}🎉 VPS setup completed!${NC}"
 echo -e "${YELLOW}📋 Next steps:${NC}"
 echo -e "1. Edit $DEPLOY_DIR/.env with your database credentials"
@@ -135,4 +171,4 @@ echo -e "- DOCKERHUB_TOKEN: Your Docker Hub access token"
 echo -e "- VPS_HOST: Your VPS IP address"
 echo -e "- VPS_USER: ecommerce"
 echo -e "- VPS_SSH_KEY: Your private SSH key"
-echo -e "- VPS_PORT: 22 (default)"
+echo -e "- VPS_PORT: $SSH_PORT"
