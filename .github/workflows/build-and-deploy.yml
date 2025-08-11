@@ -42,28 +42,72 @@ jobs:
   deploy-to-vps:
     runs-on: ubuntu-latest
     needs: build-and-push
-    if: github.ref == 'refs/heads/main' && vars.VPS_HOST != '' && vars.VPS_HOST != null
+    if: github.ref == 'refs/heads/main' && (secrets.PRODUCTION_VPS_HOST != '' || vars.VPS_HOST != '')
     
     steps:
     - name: Deploy to VPS
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ vars.VPS_HOST }}
-        username: ${{ vars.VPS_USER }}
+        host: ${{ secrets.PRODUCTION_VPS_HOST || vars.VPS_HOST }}
+        username: ${{ secrets.VPS_USER || vars.VPS_USER || 'ecommerce' }}
         key: ${{ secrets.VPS_SSH_KEY }}
-        port: ${{ vars.VPS_PORT || 22 }}
+        port: ${{ secrets.VPS_PORT || vars.VPS_PORT || 22 }}
+        timeout: 300s
         script: |
-          cd /opt/ecommerce-api || { echo "Deployment directory not found, skipping VPS deployment"; exit 0; }
-          git pull origin main
-          docker pull leangchhunhut/ecommerce-api:latest
-          docker-compose -f docker-compose.vps.yml down
-          docker-compose -f docker-compose.vps.yml up -d
-          docker image prune -f
-          sleep 10
-          if docker-compose -f docker-compose.vps.yml ps | grep -q "Up"; then
-            echo "✅ VPS Deployment successful!"
-          else
-            echo "❌ VPS Deployment failed"
-            docker-compose -f docker-compose.vps.yml logs
+          set -e
+          
+          echo "🚀 Starting VPS deployment..."
+          
+          # Check deployment directory
+          if [ ! -d "/opt/ecommerce-api" ]; then
+            echo "❌ Deployment directory not found!"
+            echo "Please run VPS setup script first: /path/to/scripts/vps-setup.sh"
             exit 1
           fi
+          
+          cd /opt/ecommerce-api
+          echo "📁 Working in: $(pwd)"
+          
+          # Pull latest code
+          echo "📥 Pulling latest code..."
+          git fetch origin
+          git reset --hard origin/main
+          
+          # Pull latest Docker image
+          echo "🐳 Pulling latest Docker image..."
+          docker pull leangchhunhut/ecommerce-api:latest
+          
+          # Deploy with zero-downtime strategy
+          echo "🔄 Deploying application..."
+          docker-compose -f docker-compose.vps.yml down
+          docker-compose -f docker-compose.vps.yml up -d --remove-orphans
+          
+          # Wait for services to start
+          echo "⏳ Waiting for services to start..."
+          sleep 30
+          
+          # Verify deployment
+          echo "🔍 Verifying deployment..."
+          if docker-compose -f docker-compose.vps.yml ps | grep -q "Up"; then
+            echo "✅ All containers are running!"
+            
+            # Optional health check
+            if curl -f -m 10 http://localhost:3000/api/v1/health >/dev/null 2>&1; then
+              echo "✅ Health check passed!"
+            else
+              echo "⚠️  Health check failed, but containers are running"
+            fi
+          else
+            echo "❌ Some containers failed to start!"
+            echo "📋 Container status:"
+            docker-compose -f docker-compose.vps.yml ps
+            echo "📋 Container logs:"
+            docker-compose -f docker-compose.vps.yml logs --tail=50
+            exit 1
+          fi
+          
+          # Cleanup old images
+          echo "🧹 Cleaning up old Docker images..."
+          docker image prune -f
+          
+          echo "🎉 VPS deployment completed successfully!"
