@@ -71,6 +71,23 @@ jobs:
           cache-to: type=gha,mode=max
           no-cache: true
 
+      - name: Notify build completion
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            🔨 *Build Completed Successfully!*
+            
+            📦 *Project:* ${{ github.repository }}
+            🏷️ *Branch:* ${{ github.ref_name }}
+            📋 *Commit:* `${{ github.sha }}`
+            👤 *Author:* ${{ github.actor }}
+            🐳 *Docker Image:* `${{ env.IMAGE_NAME }}:${{ github.sha }}`
+            
+            ⏱️ *Time:* $(date '+%Y-%m-%d %H:%M:%S UTC')
+          format: markdown
+
   deploy:
     runs-on: ubuntu-latest
     needs: build-and-push
@@ -121,3 +138,44 @@ jobs:
 
             echo "Cleaning up..."
             docker image prune -f
+
+      - name: Notify deployment success
+        uses: appleboy/telegram-action@master
+        if: success()
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            ✅ *Deployment Successful!*
+            
+            📦 *Project:* ${{ github.repository }}
+            🌐 *Environment:* Production
+            🔗 *API URL:* `http://${{ secrets.VPS_HOST }}:3000`
+            📚 *Swagger Docs:* `http://${{ secrets.VPS_HOST }}:3000/api/docs`
+            🏥 *Health Check:* `http://${{ secrets.VPS_HOST }}:3000/api/v1/health`
+            
+            🐳 *Container:* `${{ env.CONTAINER_NAME }}`
+            🖼️ *Image:* `${{ env.IMAGE_NAME }}:${{ github.sha }}`
+            👤 *Deployed by:* ${{ github.actor }}
+            
+            ⏱️ *Time:* $(date '+%Y-%m-%d %H:%M:%S UTC')
+          format: markdown
+
+      - name: Notify deployment failure
+        uses: appleboy/telegram-action@master
+        if: failure()
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            ❌ *Deployment Failed!*
+            
+            📦 *Project:* ${{ github.repository }}
+            🏷️ *Branch:* ${{ github.ref_name }}
+            📋 *Commit:* `${{ github.sha }}`
+            👤 *Author:* ${{ github.actor }}
+            
+            🔍 *Check logs:* https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ⏱️ *Time:* $(date '+%Y-%m-%d %H:%M:%S UTC')
+          format: markdown
