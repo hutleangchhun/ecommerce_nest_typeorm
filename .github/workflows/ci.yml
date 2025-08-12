@@ -109,7 +109,7 @@ jobs:
               --restart unless-stopped \
               -e NODE_ENV=production \
               -e PORT=3000 \
-              -e DB_HOST=157.10.73.27 \
+              -e DB_HOST=host.docker.internal \
               -e DB_PORT=5432 \
               -e DB_USERNAME=postgres \
               -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
