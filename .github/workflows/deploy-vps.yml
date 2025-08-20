@@ -181,10 +181,18 @@ jobs:
             exit 1
           fi
           
-          # Create backup if containers are running
-          if docker-compose -f docker-compose.vps.yml ps | grep -q "Up"; then
-            echo "📦 Creating backup before deployment..."
-            docker tag $DOCKER_IMAGE:$ENVIRONMENT $DOCKER_IMAGE:backup-$(date +%Y%m%d-%H%M%S) 2>/dev/null || echo "No previous image to backup"
+          # Check Redis service
+          if ! redis-cli ping > /dev/null 2>&1; then
+            echo "❌ Redis is not running!"
+            echo "Please start Redis: sudo systemctl start redis-server"
+            exit 1
+          fi
+          
+          # Stop existing container if running
+          if docker ps | grep -q "ecommerce-api"; then
+            echo "📦 Stopping existing container..."
+            docker stop ecommerce-api || true
+            docker rm ecommerce-api || true
           fi
           
           # Pull latest changes from repository
@@ -209,15 +217,16 @@ jobs:
             echo "✅ Using latest image tagged as $ENVIRONMENT"
           fi
           
-          # Update docker-compose with correct image
-          echo "🔧 Updating docker-compose configuration..."
-          sed -i "s|image:.*ecommerce-api.*|image: $DOCKER_IMAGE:$ENVIRONMENT|g" docker-compose.vps.yml
-          
-          # Deploy with zero-downtime strategy and force image pull
-          echo "🔄 Performing deployment..."
-          docker-compose -f docker-compose.vps.yml down
-          docker-compose -f docker-compose.vps.yml pull api || echo "Pull via compose failed, continuing with manually pulled image"
-          docker-compose -f docker-compose.vps.yml up -d --remove-orphans
+          # Deploy with host networking to access local Redis
+          echo "🔄 Starting new container..."
+          docker run -d \
+            --name ecommerce-api \
+            --restart unless-stopped \
+            --network host \
+            -e NODE_ENV=production \
+            -e REDIS_HOST=localhost \
+            -e REDIS_PORT=6379 \
+            $DOCKER_IMAGE:$ENVIRONMENT
           
           # Wait for services to be ready
           echo "⏳ Waiting for services to start (45s)..."
@@ -225,20 +234,12 @@ jobs:
           
           # Verify deployment
           echo "🔍 Verifying deployment..."
-          if ! docker-compose -f docker-compose.vps.yml ps | grep -q "Up"; then
+          if ! docker ps | grep -q "ecommerce-api.*Up"; then
             echo "❌ Deployment verification failed!"
             echo "📋 Container status:"
-            docker-compose -f docker-compose.vps.yml ps
+            docker ps -a | grep ecommerce-api
             echo "📋 Container logs:"
-            docker-compose -f docker-compose.vps.yml logs --tail=50
-            
-            # Attempt rollback if backup exists
-            if docker images | grep -q "$DOCKER_IMAGE.*backup"; then
-              echo "🔄 Attempting rollback..."
-              BACKUP_TAG=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep "$DOCKER_IMAGE.*backup" | head -1 | cut -d':' -f2)
-              docker tag $DOCKER_IMAGE:$BACKUP_TAG $DOCKER_IMAGE:$ENVIRONMENT
-              docker-compose -f docker-compose.vps.yml up -d
-            fi
+            docker logs ecommerce-api --tail=50
             exit 1
           fi
           

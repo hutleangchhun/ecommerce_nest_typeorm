@@ -20,6 +20,10 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
       CORS_ORIGIN: ${CORS_ORIGIN}
       PORT: 3000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - redis
     networks:
       - ecommerce-network
     healthcheck:
@@ -28,6 +32,22 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Nginx reverse proxy (optional)
   nginx:
@@ -47,6 +67,10 @@ services:
     profiles:
       - nginx
 
+
+volumes:
+  redis_data:
+    driver: local
 
 networks:
   ecommerce-network:
