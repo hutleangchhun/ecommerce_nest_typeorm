@@ -32,7 +32,7 @@ export class Order {
   created_at: Date;
 
   @ManyToOne(() => Customer, customer => customer.orders)
-  @JoinColumn({ name: 'customer_id' })
+  @JoinColumn({ name: 'customer_id', referencedColumnName: 'id' })
   customer: Customer;
 
   @OneToMany(() => OrderItem, orderItem => orderItem.order)

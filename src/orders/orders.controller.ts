@@ -6,13 +6,17 @@ import {
   ParseIntPipe,
   Query,
   Body,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
 import { Order } from '../common/entities/order.entity';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('orders')
 @Controller('orders')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth('JWT-auth')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 

@@ -1,4 +1,5 @@
 export { Category } from './category.entity';
+export { User } from './user.entity';
 export { Customer } from './customer.entity';
 export { Product } from './product.entity';
 export { Order } from './order.entity';

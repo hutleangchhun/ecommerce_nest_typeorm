@@ -18,14 +18,14 @@ export class CustomersService {
 
   async findAll(): Promise<Customer[]> {
     return await this.customersRepository.find({
-      relations: ['orders'],
+      relations: ['orders', 'user'],
     });
   }
 
   async findOne(id: number): Promise<Customer> {
     const customer = await this.customersRepository.findOne({
-      where: { customer_id: id },
-      relations: ['orders', 'orders.orderItems'],
+      where: { id },
+      relations: ['orders', 'orders.orderItems', 'user'],
     });
 
     if (!customer) {
@@ -37,8 +37,8 @@ export class CustomersService {
 
   async findByEmail(email: string): Promise<Customer> {
     const customer = await this.customersRepository.findOne({
-      where: { email },
-      relations: ['orders'],
+      where: { user: { email } },
+      relations: ['orders', 'user'],
     });
 
     if (!customer) {
@@ -62,6 +62,7 @@ export class CustomersService {
   async getCustomerStats(): Promise<any[]> {
     return await this.customersRepository
       .createQueryBuilder('customer')
+      .leftJoinAndSelect('customer.user', 'user')
       .leftJoinAndSelect('customer.orders', 'orders')
       .loadRelationCountAndMap('customer.orderCount', 'customer.orders')
       .getMany();
@@ -70,10 +71,8 @@ export class CustomersService {
   async searchByName(name: string): Promise<Customer[]> {
     return await this.customersRepository
       .createQueryBuilder('customer')
-      .where(
-        'customer.first_name ILIKE :name OR customer.last_name ILIKE :name OR CONCAT(customer.first_name, \' \', customer.last_name) ILIKE :name',
-        { name: `%${name}%` },
-      )
+      .leftJoinAndSelect('customer.user', 'user')
+      .where('user.name ILIKE :name', { name: `%${name}%` })
       .getMany();
   }
 }

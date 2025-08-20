@@ -1,6 +1,7 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { DatabaseService } from '../database/database.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('health')
 @Controller('health')
@@ -23,6 +24,8 @@ export class HealthController {
   }
 
   @Get('database')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Database information' })
   @ApiResponse({ status: 200, description: 'Database information retrieved' })
   async getDatabaseInfo() {

@@ -7,6 +7,8 @@ import { ProductsModule } from './products/products.module';
 import { CustomersModule } from './customers/customers.module';
 import { OrdersModule } from './orders/orders.module';
 import { AnalysisModule } from './analysis/analysis.module';
+import { AuthModule } from './auth/auth.module';
+import { RedisModule } from './redis/redis.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -16,6 +18,8 @@ import { AppController } from './app.controller';
       envFilePath: '.env',
     }),
     DatabaseModule,
+    RedisModule,
+    AuthModule,
     HealthModule,
     CategoriesModule,
     ProductsModule,

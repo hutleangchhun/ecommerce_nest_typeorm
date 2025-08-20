@@ -1,13 +1,20 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AnalysisService } from './analysis.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { Role } from '../common/enums/role.enum';
 
 @ApiTags('analysis')
 @Controller('analysis')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth('JWT-auth')
 export class AnalysisController {
   constructor(private readonly analysisService: AnalysisService) {}
 
   @Get('overview')
+  @Roles(Role.ADMIN, Role.SALES)
   @ApiOperation({ 
     summary: 'Get database overview',
     description: 'Returns count of all main entities in the system'
@@ -33,6 +40,7 @@ export class AnalysisController {
   }
 
   @Get('inventory')
+  @Roles(Role.ADMIN, Role.SALES)
   @ApiOperation({ 
     summary: 'Get inventory analysis',
     description: 'Provides detailed inventory insights including stock levels, categories, and alerts'
@@ -77,6 +85,7 @@ export class AnalysisController {
   }
 
   @Get('sales')
+  @Roles(Role.ADMIN, Role.SALES)
   @ApiOperation({ 
     summary: 'Get sales analysis',
     description: 'Provides comprehensive sales insights including revenue, top customers, and best-selling products'
@@ -126,6 +135,7 @@ export class AnalysisController {
   }
 
   @Get('data-quality')
+  @Roles(Role.ADMIN, Role.SALES)
   @ApiOperation({ 
     summary: 'Get data quality report',
     description: 'Analyzes data integrity and provides quality score with recommendations'
@@ -156,6 +166,7 @@ export class AnalysisController {
   }
 
   @Get('system')
+  @Roles(Role.ADMIN, Role.SALES)
   @ApiOperation({ 
     summary: 'Get full system analysis',
     description: 'Comprehensive system analysis combining all insights for monitoring dashboard'
@@ -206,6 +217,7 @@ export class AnalysisController {
   }
 
   @Get('health-check')
+  @Roles(Role.ADMIN, Role.SALES)
   @ApiOperation({ 
     summary: 'Quick system health check',
     description: 'Lightweight endpoint for monitoring system status'

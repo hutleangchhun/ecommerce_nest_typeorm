@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(curl:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run lint)",
+      "Bash(chmod:*)",
+      "Bash(sudo systemctl status:*)",
+      "Bash(systemctl:*)",
+      "Bash(pg_isready:*)",
+      "Bash(redis-cli:*)",
+      "Bash(createdb:*)"
     ],
     "deny": []
   }

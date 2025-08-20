@@ -3,24 +3,14 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateCustomerDto {
   @ApiProperty({
-    description: 'First name',
-    example: 'John',
-    maxLength: 50,
+    description: 'Full name',
+    example: 'John Doe',
+    maxLength: 100,
   })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(50)
-  first_name: string;
-
-  @ApiProperty({
-    description: 'Last name',
-    example: 'Doe',
-    maxLength: 50,
-  })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
-  last_name: string;
+  @MaxLength(100)
+  name: string;
 
   @ApiProperty({
     description: 'Email address',

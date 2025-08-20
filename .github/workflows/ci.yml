@@ -134,6 +134,10 @@ jobs:
               -e TYPEORM_SYNCHRONIZE=true \
               -e TYPEORM_LOGGING=false \
               -e DB_SEED_DATA=true \
+              -e JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+              -e JWT_EXPIRES_IN="8h" \
+              -e REDIS_HOST=localhost \
+              -e REDIS_PORT=6379 \
               $IMAGE_NAME:${GITHUB_SHA}
 
             echo "Cleaning up..."

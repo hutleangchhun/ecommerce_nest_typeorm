@@ -8,14 +8,18 @@ import {
   Delete,
   ParseIntPipe,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from '../common/dto/create-product.dto';
 import { Product } from '../common/entities/product.entity';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('products')
 @Controller('products')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth('JWT-auth')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
