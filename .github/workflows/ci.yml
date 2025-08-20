@@ -122,7 +122,7 @@ jobs:
 
             echo "Starting new container..."
             docker run -d --name $CONTAINER_NAME \
-              --network=host \
+              -p 3000:3000 \ 
               --restart unless-stopped \
               -e NODE_ENV=production \
               -e PORT=3000 \
