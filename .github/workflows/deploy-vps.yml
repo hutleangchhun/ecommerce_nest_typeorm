@@ -75,7 +75,7 @@ jobs:
     if: always() && (needs.run-ci-tests.result == 'success' || inputs.skip_tests)
     environment:
       name: ${{ inputs.environment }}
-      url: http://${{ inputs.environment == 'production' && secrets.PRODUCTION_VPS_HOST || secrets.STAGING_VPS_HOST }}:3000
+      url: http://${{ secrets.VPS_HOST }}:3000
     
     steps:
     - name: Checkout code
@@ -124,9 +124,9 @@ jobs:
     - name: Deploy to ${{ inputs.environment }} VPS
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ inputs.environment == 'production' && secrets.PRODUCTION_VPS_HOST || secrets.STAGING_VPS_HOST }}
+        host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USER }}
-        key: ${{ secrets.VPS_SSH_KEY }}
+        key: ${{ secrets.VPS_SSH_KET }}
         port: ${{ secrets.VPS_PORT || 22 }}
         timeout: 300s
         script: |
@@ -155,17 +155,23 @@ jobs:
           cd /opt/ecommerce-api
           echo "📁 Working directory: $(pwd)"
           
-          # Verify environment file
-          if [ ! -f ".env" ]; then
-            echo "⚠️  .env file not found. Creating from template..."
-            if [ -f ".env.example" ]; then
-              cp .env.example .env
-              echo "📝 Please configure /opt/ecommerce-api/.env with your $ENVIRONMENT settings"
-            else
-              echo "❌ No .env template found!"
-              exit 1
-            fi
-          fi
+          # Create .env file from GitHub Secrets
+          echo "📝 Creating .env file from GitHub Secrets..."
+          cat > .env << EOF
+# Generated from GitHub Secrets - $(date)
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+DB_NAME=ecommerce_db
+REDIS_HOST=localhost
+REDIS_PORT=6379
+JWT_SECRET=${{ secrets.JWT_SECRET }}
+JWT_EXPIRES_IN=24h
+CORS_ORIGIN=http://localhost:3000,https://yourdomain.com
+NODE_ENV=production
+EOF
+          echo "✅ Environment file created successfully"
           
           # Verify docker-compose file
           if [ ! -f "docker-compose.vps.yml" ]; then
@@ -217,16 +223,14 @@ jobs:
             echo "✅ Using latest image tagged as $ENVIRONMENT"
           fi
           
-          # Deploy with host networking to access local Redis
-          echo "🔄 Starting new container..."
-          docker run -d \
-            --name ecommerce-api \
-            --restart unless-stopped \
-            --network host \
-            -e NODE_ENV=production \
-            -e REDIS_HOST=localhost \
-            -e REDIS_PORT=6379 \
-            $DOCKER_IMAGE:$ENVIRONMENT
+          # Download latest docker-compose.vps.yml
+          echo "📥 Downloading latest docker-compose.vps.yml..."
+          curl -o docker-compose.vps.yml https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.vps.yml
+          
+          # Deploy using docker-compose with environment file
+          echo "🔄 Starting services with docker-compose..."
+          docker-compose -f docker-compose.vps.yml down || true
+          DOCKER_IMAGE_TAG=$ENVIRONMENT docker-compose -f docker-compose.vps.yml up -d
           
           # Wait for services to be ready
           echo "⏳ Waiting for services to start (45s)..."
@@ -252,7 +256,7 @@ jobs:
 
     - name: Comprehensive Health Check
       run: |
-        VPS_HOST="${{ inputs.environment == 'production' && secrets.PRODUCTION_VPS_HOST || secrets.STAGING_VPS_HOST }}"
+        VPS_HOST="${{ secrets.VPS_HOST }}"
         ENVIRONMENT="${{ inputs.environment }}"
         
         echo "🔍 Running comprehensive health checks for $ENVIRONMENT environment..."
@@ -316,7 +320,7 @@ jobs:
       if: always()
       run: |
         ENVIRONMENT="${{ inputs.environment }}"
-        VPS_HOST="${{ inputs.environment == 'production' && secrets.PRODUCTION_VPS_HOST || secrets.STAGING_VPS_HOST }}"
+        VPS_HOST="${{ secrets.VPS_HOST }}"
         
         echo "📋 Direct VPS Deployment Summary"
         echo "================================="

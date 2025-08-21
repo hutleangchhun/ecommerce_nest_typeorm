@@ -3,12 +3,10 @@ version: '3.8'
 services:
   # NestJS API
   api:
-    image: leangchhunhut/ecommerce-api:latest
+    image: leangchhunhut/ecommerce-api:${DOCKER_IMAGE_TAG:-latest}
     container_name: ecommerce_api
     restart: unless-stopped
     pull_policy: always
-    ports:
-      - "3000:3000"
     environment:
       DB_HOST: ${DB_HOST:-localhost}
       DB_PORT: ${DB_PORT:-5432}
@@ -20,34 +18,15 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
       CORS_ORIGIN: ${CORS_ORIGIN}
       PORT: 3000
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-    depends_on:
-      - redis
-    networks:
-      - ecommerce-network
+      REDIS_HOST: ${REDIS_HOST:-localhost}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+    network_mode: host
     healthcheck:
       test: ["CMD", "node", "-e", "const http = require('http'); http.get('http://localhost:3000/api/v1/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: ecommerce_redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    networks:
-      - ecommerce-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # Nginx reverse proxy (optional)
   nginx:
@@ -68,10 +47,4 @@ services:
       - nginx
 
 
-volumes:
-  redis_data:
-    driver: local
-
-networks:
-  ecommerce-network:
-    driver: bridge
+# No volumes needed when using local PostgreSQL and Redis services

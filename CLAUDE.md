@@ -164,12 +164,12 @@ All entities use snake_case for database column names but camelCase in TypeScrip
 - **Log Rotation**: Automated log management with 14-day retention
 
 #### Docker Compose for VPS (`docker-compose.vps.yml`)
-- **Production Configuration**: Optimized for VPS deployment
-- **Image**: `leangchhunhut/ecommerce-api:latest` (from Docker Hub)
-- **Database**: PostgreSQL 15-alpine with persistent volumes
-- **Networking**: Internal Docker network with exposed API port
+- **Production Configuration**: Optimized for VPS deployment with local services
+- **Image**: `leangchhunhut/ecommerce-api:${DOCKER_IMAGE_TAG:-latest}` (from Docker Hub)
+- **Local Services**: Uses locally installed PostgreSQL and Redis (not containerized)
+- **Networking**: Host network mode for accessing local PostgreSQL and Redis
+- **Environment**: Auto-generated from GitHub Secrets during deployment
 - **Health Checks**: Built-in container health monitoring
-- **Environment**: Production-ready with proper resource limits
 
 #### Legacy Configurations (Optional)
 - **Kubernetes** (`k8s/`): Available for container orchestration environments
@@ -183,11 +183,18 @@ All entities use snake_case for database column names but camelCase in TypeScrip
 - `DOCKERHUB_TOKEN` - Docker Hub access token/password
 
 **VPS Deployment:**
-- `VPS_SSH_KEY` - Private SSH key for VPS access (PEM format)
-- `VPS_USER` - VPS username (default: `ecommerce`)
-- `VPS_PORT` - SSH port (default: `22`, recommended: `2222`)
-- `STAGING_VPS_HOST` - Staging VPS IP address or hostname
-- `PRODUCTION_VPS_HOST` - Production VPS IP address or hostname
+- `VPS_SSH_KET` - Private SSH key for VPS access (PEM format) ✅ (you have this)
+- `VPS_USER` - VPS username ✅ (you have this)
+- `VPS_PORT` - SSH port ✅ (you have this)
+- `VPS_HOST` - VPS IP address or hostname ✅ (you have this)
+
+**Application Environment:**
+- `DB_PASSWORD` - Database password ✅ (you have this)
+- `JWT_SECRET` - JWT signing secret ✅ (you have this)
+
+**Notifications:**
+- `TELEGRAM_TOKEN` - Telegram bot token ✅ (you have this)
+- `TELEGRAM_TO` - Telegram chat ID ✅ (you have this)
 
 **Security & Quality:**
 - `CODECOV_TOKEN` - Codecov integration token
@@ -200,52 +207,62 @@ All entities use snake_case for database column names but camelCase in TypeScrip
 #### Repository Variables (GitHub Settings → Secrets and variables → Actions → Variables)
 - `PRODUCTION_APPROVERS` - Comma-separated GitHub usernames for production approval
 
-#### VPS Environment Variables (Configure in `/opt/ecommerce-api/.env`)
+#### VPS Environment Variables (Auto-generated from GitHub Secrets)
+The `.env` file is automatically created during deployment from GitHub Secrets. No manual configuration required on VPS.
+
+**Example generated `.env` file:**
 ```bash
-# Database Configuration
-DB_HOST=postgres
+# Generated from GitHub Secrets - 2025-08-21
+DB_HOST=localhost
 DB_PORT=5432
-DB_USERNAME=your_db_user
+DB_USERNAME=postgres
 DB_PASSWORD=your_secure_password
-DB_NAME=ecommerce_prod
-
-# Application Configuration
-NODE_ENV=production
-PORT=3000
+DB_NAME=ecommerce_db
+REDIS_HOST=localhost
+REDIS_PORT=6379
 JWT_SECRET=your_jwt_secret
-API_PREFIX=api/v1
-
-# TypeORM Configuration
-TYPEORM_SYNCHRONIZE=false
-TYPEORM_LOGGING=false
-TYPEORM_RUN_MIGRATIONS=true
+JWT_EXPIRES_IN=24h
+CORS_ORIGIN=https://yourdomain.com
+NODE_ENV=production
 ```
 
 ### Setup Instructions
 
-#### 1. VPS Initial Setup
+#### 1. VPS Services Setup
 ```bash
-# On your VPS, run the setup script
-chmod +x scripts/vps-setup.sh
-SSH_PORT=2222 ./scripts/vps-setup.sh
+# On your VPS, install PostgreSQL, Redis, and Docker
+curl -O https://raw.githubusercontent.com/your-username/your-repo/main/scripts/setup-vps-services.sh
+chmod +x setup-vps-services.sh
+./setup-vps-services.sh
+
+# Optional: Set custom database password
+./setup-vps-services.sh "your_secure_password"
 ```
 
-#### 2. Configure GitHub Repository
-1. Add all required secrets and variables in GitHub repository settings
-2. Ensure your SSH public key is added to the VPS `ecommerce` user
-3. Update VPS hostnames/IPs in repository secrets
-4. Configure production approvers list
+**What this script does:**
+- Installs PostgreSQL 15 and creates `ecommerce_db` database
+- Installs Redis server for caching
+- Installs Docker and Docker Compose
+- Configures services to start on boot
+- Creates `/opt/ecommerce-api` deployment directory
+- Sets up proper authentication and networking
 
-#### 3. Docker Compose VPS Configuration
-Create `docker-compose.vps.yml` on your VPS with production settings:
-- PostgreSQL with persistent volumes
-- API container with health checks
-- Proper networking and resource limits
-- Environment file integration
+#### 2. Update GitHub Secrets
+**Required secrets (you already have most):**
+- `DB_PASSWORD` - Use the password from setup script output ✅
+- `JWT_SECRET` - Your JWT signing secret ✅
+- `VPS_HOST`, `VPS_USER`, `VPS_PORT`, `VPS_SSH_KET` ✅
 
-#### 4. Initial Deployment
-1. Push to `main` branch to trigger CI/CD pipeline
-2. Monitor CI completion and automatic staging deployment
+#### 3. Deploy Application
+```bash
+# Run the GitHub Actions workflow
+# Go to: Actions → Direct VPS Deploy → Run workflow
+```
+
+**Or trigger automatically:**
+1. Push to `main` branch
+2. Workflow will automatically deploy to your VPS
+3. Environment variables are auto-generated from GitHub Secrets
 3. For production: Manually approve deployment via GitHub Issues
 4. Verify health checks and functionality post-deployment
 
